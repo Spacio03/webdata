@@ -16,8 +16,12 @@ from agents.discovery   import discover_companies
 from agents.dark_funnel import detect_dark_funnel_signals
 from agents.temporal    import predict_buying_window
 from agents.committee   import map_buying_committee
-from agents.synthesis   import compute_opportunity_score, generate_account_brief, generate_all_drafts
+from agents.synthesis   import (
+    compute_opportunity_score, generate_account_brief, generate_all_drafts,
+    generate_why_now_bullets,
+)
 from agents.memory      import remember_opportunity, recall_account_history
+from demo_data import DEMO_MODE, load_demo_pipeline_results
 
 ALERT_SCORE_THRESHOLD = float(os.getenv("ALERT_SCORE_THRESHOLD", "70"))
 
@@ -25,6 +29,24 @@ ALERT_SCORE_THRESHOLD = float(os.getenv("ALERT_SCORE_THRESHOLD", "70"))
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _ensure_sqlite_columns()
+
+
+async def _ensure_sqlite_columns():
+    """Add columns introduced after first DB create (SQLite dev)."""
+    from sqlalchemy import text
+    alters = [
+        "ALTER TABLE opportunities ADD COLUMN why_now_bullets JSON",
+        "ALTER TABLE opportunities ADD COLUMN icp_score FLOAT DEFAULT 0",
+        "ALTER TABLE opportunities ADD COLUMN icp_meta JSON",
+    ]
+    async with AsyncSessionLocal() as session:
+        for stmt in alters:
+            try:
+                await session.execute(text(stmt))
+                await session.commit()
+            except Exception:
+                await session.rollback()
 
 
 async def run_pipeline(request: PipelineRequest) -> tuple[list[str], str | None]:
@@ -34,11 +56,21 @@ async def run_pipeline(request: PipelineRequest) -> tuple[list[str], str | None]
     """
     print(f"[Pipeline] Starting run for ICP: {request.icp_description[:60]}...")
 
+    if DEMO_MODE:
+        print("[Pipeline] DEMO_MODE — loading pre-built US SMB opportunities")
+        ids = await load_demo_pipeline_results()
+        return ids, "Demo mode: showing cached US SMB signal data (no live scraping)."
+
     # ── Stage 1: Discovery ────────────────────────────────────────────────────
-    companies, warning = await discover_companies(
-        icp_description=request.icp_description,
-        seed_names=request.target_companies,
-    )
+    try:
+        companies, warning = await discover_companies(
+            icp_description=request.icp_description,
+            seed_names=request.target_companies,
+        )
+    except Exception as e:
+        warning = f"Production scan could not reach the live data provider: {e}"
+        print(f"[Pipeline] {warning}")
+        return [], warning
     print(f"[Pipeline] Discovered {len(companies)} companies")
 
     # ── Stages 2–6: Per-company agent pipeline (parallel) ─────────────────────
@@ -95,6 +127,13 @@ async def _process_company(company: CompanyProfile, request: PipelineRequest) ->
             sender_company=request.sender_company,
         )
 
+        why_now = await generate_why_now_bullets(company, signals, buying_window)
+        icp_meta = {
+            "industry": company.industry or "",
+            "employees": str(company.headcount or ""),
+            "state": company.us_state or company.location or "",
+        }
+
         # Stage 6: Persist to DB + store in memory
         opp_id = await _save_opportunity(
             company=company,
@@ -104,6 +143,9 @@ async def _process_company(company: CompanyProfile, request: PipelineRequest) ->
             buying_window=buying_window,
             brief=brief,
             drafts=drafts,
+            why_now_bullets=why_now,
+            icp_score=company.icp_score,
+            icp_meta=icp_meta,
         )
 
         # Save score snapshot for timeline
@@ -123,7 +165,8 @@ async def _process_company(company: CompanyProfile, request: PipelineRequest) ->
 
 
 async def _save_opportunity(
-    company, score, signals, committee, buying_window, brief, drafts
+    company, score, signals, committee, buying_window, brief, drafts,
+    why_now_bullets=None, icp_score=0.0, icp_meta=None,
 ) -> str:
     opp_id = str(uuid.uuid4())
     async with AsyncSessionLocal() as session:
@@ -138,6 +181,9 @@ async def _save_opportunity(
             buying_window=buying_window.model_dump() if buying_window else {},
             account_brief=brief,
             drafts=[d.model_dump() for d in drafts],
+            why_now_bullets=why_now_bullets or [],
+            icp_score=icp_score,
+            icp_meta=icp_meta or {},
             created_at=datetime.utcnow(),
         )
         session.add(opp)

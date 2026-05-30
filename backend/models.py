@@ -20,6 +20,22 @@ Base = declarative_base()
 
 # ── SQLAlchemy DB models ─────────────────────────────────────────────────────
 
+class ICPConfigDB(Base):
+    __tablename__ = "icp_configs"
+    id               = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    industries       = Column(JSON, default=list)
+    employee_min     = Column(Integer, default=10)
+    employee_max     = Column(Integer, default=200)
+    us_states        = Column(JSON, default=list)
+    funding_stages   = Column(JSON, default=list)
+    tech_stack_signals = Column(JSON, default=list)
+    negative_signals = Column(JSON, default=list)
+    your_product     = Column(Text, default="")
+    sender_name      = Column(String, default="Alex")
+    sender_company   = Column(String, default="MOSAIC")
+    updated_at       = Column(DateTime, default=datetime.utcnow)
+
+
 class OpportunityDB(Base):
     __tablename__ = "opportunities"
     id            = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -32,6 +48,9 @@ class OpportunityDB(Base):
     buying_window = Column(JSON, default=dict)          # BuyingWindowPrediction dict
     account_brief = Column(Text)
     drafts        = Column(JSON, default=list)          # list of OutreachDraft dicts
+    why_now_bullets = Column(JSON, default=list)
+    icp_score     = Column(Float, default=0.0)
+    icp_meta      = Column(JSON, default=dict)          # industry, employees, state
     created_at    = Column(DateTime, default=datetime.utcnow)
     approved_at   = Column(DateTime, nullable=True)
 
@@ -83,6 +102,7 @@ class CompanyProfile(BaseModel):
     funding:      Optional[str] = None
     industry:     str = ""
     location:     str = ""
+    us_state:     str = ""
     source_url:   str = ""
     icp_score:    float = 0.0
 
@@ -124,6 +144,25 @@ class OutreachDraft(BaseModel):
     cta:               str
 
 
+class TimelineEntry(BaseModel):
+    date:          str
+    score:         float
+    trigger_label: str
+    signal_type:   str = ""
+
+
+class ICPConfig(BaseModel):
+    industries: list[str] = ["SaaS", "HR Tech", "DevTools"]
+    employee_range: tuple[int, int] = (10, 200)
+    us_states: list[str] = []
+    funding_stages: list[str] = ["Seed", "Series A", "Series B"]
+    tech_stack_signals: list[str] = []
+    negative_signals: list[str] = ["enterprise", "government"]
+    your_product: str = ""
+    sender_name: str = "Alex"
+    sender_company: str = "MOSAIC"
+
+
 class Opportunity(BaseModel):
     id:           str
     company_name: str
@@ -135,24 +174,52 @@ class Opportunity(BaseModel):
     buying_window: Optional[BuyingWindowPrediction]
     account_brief: str
     drafts:        list[OutreachDraft]
+    why_now_bullets: list[str] = []
+    icp_score:     float = 0.0
+    icp_meta:      dict = {}
     created_at:    str
 
 
 class PipelineRequest(BaseModel):
     icp_description: str = Field(
-        ...,
+        default="US B2B SaaS SMBs 10-200 employees scaling GTM",
         example="B2B SaaS companies with 20-200 employees in the sales tech space that are scaling their GTM team"
     )
     target_companies: list[str] = Field(
         default=[],
-        example=["Acme Corp", "Notion", "Linear"]
+        example=["Finch HR", "Workstream"]
     )
     your_product: str = Field(
-        ...,
+        default="AI revenue platform that turns live web signals into outbound actions",
         example="Revenue automation platform that reactivates dormant leads using AI"
     )
     sender_name: str = "Alex"
     sender_company: str = "MOSAIC"
+    icp_config: Optional[ICPConfig] = None
+
+
+class OpportunityActionRequest(BaseModel):
+    action_type: str
+    notes: str = ""
+    assignee: str = ""
+    draft_index: int = 0
+    to_email: str = ""
+
+
+class IntelligenceAskRequest(BaseModel):
+    question: str
+
+
+class AgenticActionRequest(BaseModel):
+    action_id: str
+    account_id: str = ""
+    account_name: str
+    action_type: str
+    to_email: str = ""
+    subject: str = ""
+    body: str = ""
+    owner: str = ""
+    payload: dict = {}
 
 
 # ── New response models ───────────────────────────────────────────────────────

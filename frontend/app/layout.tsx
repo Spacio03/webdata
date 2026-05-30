@@ -9,14 +9,14 @@ const inter = Inter({
 })
 
 export const metadata: Metadata = {
-  title: 'Mosaic — GTM OS',
-  description: 'Outbound intelligence for revenue teams',
+  title: 'CaliSignal SDR — AI GTM Intelligence',
+  description: 'An AI SDR cockpit that turns live California startup web signals into meetings.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="font-sans min-h-screen">{children}</body>
+      <body className="font-sans min-h-screen antialiased">{children}</body>
     </html>
   )
 }

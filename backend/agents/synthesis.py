@@ -15,11 +15,17 @@ from models import (
 )
 from demo_data import fallback_brief, fallback_draft
 
-client = AsyncOpenAI(
-    api_key=os.getenv("AIML_API_KEY"),
-    base_url=os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1"),
-)
 MODEL = os.getenv("AIML_MODEL", "gpt-4o")
+
+
+def _client() -> AsyncOpenAI | None:
+    key = os.getenv("AIML_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not key:
+        return None
+    return AsyncOpenAI(
+        api_key=key,
+        base_url=os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1"),
+    )
 
 
 # ── Signal interpretation labels ─────────────────────────────────────────────
@@ -143,8 +149,11 @@ Write:
 
 Be specific. Use the signal evidence. No fluff."""
 
+    c = _client()
+    if not c:
+        return fallback_brief(company, signals, buying_window, your_product)
     try:
-        response = await client.chat.completions.create(
+        response = await c.chat.completions.create(
             model=MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=400,
@@ -199,8 +208,11 @@ Return JSON with these exact keys:
   "cta": "the specific call to action"
 }}"""
 
+    c = _client()
+    if not c:
+        return fallback_draft(stakeholder, company, sender_name, sender_company)
     try:
-        response = await client.chat.completions.create(
+        response = await c.chat.completions.create(
             model=MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500,
@@ -221,6 +233,56 @@ Return JSON with these exact keys:
     except Exception as e:
         print(f"[Synthesis] Draft generation failed for {stakeholder.name}, using template: {e}")
         return fallback_draft(stakeholder, company, sender_name, sender_company)
+
+
+async def generate_why_now_bullets(
+    company: CompanyProfile,
+    signals: list[IntentSignal],
+    buying_window: BuyingWindowPrediction | None,
+) -> list[str]:
+    """3–5 short bullets, each citing a specific signal."""
+    if not signals and not buying_window:
+        return [f"{company.name} matches your ICP — run live discovery for signals."]
+
+    if os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes"):
+        return [
+            s.evidence[:90] for s in signals[:4]
+        ] or [buying_window.pattern_label if buying_window else "Signals detected"]
+
+    evidence = "\n".join(f"- {s.evidence[:120]}" for s in signals[:6])
+    window = buying_window.pattern_label if buying_window else ""
+    prompt = f"""Company: {company.name}
+Signals:
+{evidence}
+Buying window: {window}
+
+Return exactly 3-5 short bullet strings (JSON array of strings). Each bullet must cite ONE specific fact from the signals. Max 12 words per bullet. No generic fluff."""
+
+    c = _client()
+    if c:
+        try:
+            import json
+            response = await c.chat.completions.create(
+                model=MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+            data = json.loads(response.choices[0].message.content)
+            bullets = data.get("bullets") or data.get("why_now") or data.get("items")
+            if isinstance(bullets, list) and bullets:
+                return [str(b) for b in bullets[:5]]
+        except Exception as e:
+            print(f"[Synthesis] why_now bullets failed: {e}")
+
+    bullets = []
+    for s in signals[:4]:
+        label = _SIGNAL_LABELS.get(s.signal_type, s.signal_type)
+        bullets.append(f"{label}: {s.evidence[:70]}")
+    if buying_window and len(bullets) < 5:
+        bullets.append(f"{buying_window.pattern_label} ({buying_window.days_to_window}d window)")
+    return bullets[:5]
 
 
 async def generate_all_drafts(

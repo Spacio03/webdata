@@ -1,7 +1,12 @@
 import type { Config } from 'tailwindcss'
+import animate from 'tailwindcss-animate'
 
 const config: Config = {
-  content: ['./app/**/*.{js,ts,jsx,tsx,mdx}'],
+  content: [
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './lib/**/*.{js,ts,jsx,tsx,mdx}',
+  ],
   theme: {
     extend: {
       fontFamily: {
@@ -9,16 +14,16 @@ const config: Config = {
       },
       colors: {
         border: '#e5e5e5',
+        surface: '#ffffff',
         muted: '#737373',
-        surface: '#fafafa',
       },
       boxShadow: {
-        sm: '0 1px 2px 0 rgb(0 0 0 / 0.04)',
-        card: '0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06)',
+        card: '0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.04)',
+        soft: '0 4px 24px -4px rgb(0 0 0 / 0.06)',
       },
     },
   },
-  plugins: [],
+  plugins: [animate],
 }
 
 export default config

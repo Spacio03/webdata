@@ -1,0 +1,15 @@
+# Secrets
+.env
+
+# OS
+.DS_Store
+
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
